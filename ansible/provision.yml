@@ -1,0 +1,134 @@
+---
+# File to config rasberry pis
+# you need to copy your ssh keys to the pi in order for this to work
+# ansible-playbook -i inventories/hosts -u pi config_rpi.yml
+- hosts: pis
+  become: yes
+  gather_facts: true
+
+  vars:
+    - deploy_service: no
+    - service_name: <template>
+    # change this var to yes if you would like to overclock
+    # then checkout overclock.yml
+    - overclock: no
+    # versions: zero, 3a+, 3b, 3b+, 4b, etc
+    # I don't have a profile for every PI
+    #
+    # Used to select the overclock profile
+    # this value is also appened to hostname; however, hostname
+    # doesn't accept special characters
+    - pi_model: 3bplus
+
+
+  pre_tasks:
+    - debug:
+        msg: "WARNING!!! Adding Overclock profile for pi model {{ pi_model }}... Make sure a heatsync and fan are installed!"
+      when: overclock
+
+    - name: Set Timezone to America/New_York
+      timezone:
+        name: America/New_York
+
+    - name: Install system packages
+      package:
+        name: "{{ item }}"
+        state: present
+        update_cache: yes
+      loop:
+        - wget
+        - nano
+        - curl
+        - rsync
+        - vim
+        - git
+        - zip
+        - python3
+        # system tests
+        - sysbench
+        - stress-ng
+
+
+  # Some config borrowed from here:
+  # Source: https://raspberrypi.stackexchange.com/questions/28907/how-could-one-automate-the-raspbian-raspi-config-setup
+  tasks:
+    #####################
+    # raspi-config
+    #####################
+
+    # - name: Disable GUI and enable CLI auto-login
+    #   become: yes
+    #   command: raspi-config nonint do_boot_behaviour
+
+    - name: Enable Camera
+      become: yes
+      command: raspi-config nonint do_camera 1
+
+    # to control GPIO pins
+    - name: Install RPI.GPIO
+      become: yes
+      command: pip3 install RPI.GPIO
+
+    - name: copy .bash_profile to ~/
+      copy:
+        src: .bash_profile
+        dest: /home/pi/
+
+    - include: overclock.yml
+      when: overclock
+
+    #####################
+    # service config
+    #####################
+    # https://linuxconfig.org/how-to-create-systemd-service-unit-in-linux
+    # https://www.raspberrypi.org/documentation/linux/usage/systemd.md
+    # commands
+    # sudo systemctl start myscript.service
+    # sudo systemctl stop myscript.service
+    - name: Copy <template>.service file to /etc/systemd/system
+      template:
+        src: <template>.service.j2
+        dest: /etc/systemd/system/<template>.service
+        mode: '0770'
+      when: deploy_service
+
+    # Used to allow autostart of service on pi
+    # Now you no longer have to run this command.
+    # sudo systemctl enable myscript.service
+    - name: Allow <template>.service autostart by createing a symbolic link
+      file:
+        src: /etc/systemd/system/<template>.service
+        dest: /etc/systemd/system/multi-user.target.wants/<template>.service
+        owner: root
+        group: root
+        state: link
+      when: deploy_service
+
+    #####################
+    # src files
+    #####################
+    - name: make the ~/src directory
+      file:
+        path: /home/pi/src
+        state: directory
+        mode: 0777
+
+    - name: make the ~/src/files directory
+      file:
+        path: /home/pi/src/files
+        state: directory
+        mode: 0777
+
+    # - name: copy <filename> to ~/
+    #   copy:
+    #     src: ../src/<filename>
+    #     dest: /home/pi/
+
+    #####################
+    # other
+    #####################
+
+
+  post_tasks:
+    - name: reboot PIs
+      reboot:
