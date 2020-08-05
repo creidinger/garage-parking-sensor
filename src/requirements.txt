@@ -1,0 +1,4 @@
+RPi.GPIO
+board
+adafruit-circuitpython-hcsr04
+adafruit-circuitpython-us100
